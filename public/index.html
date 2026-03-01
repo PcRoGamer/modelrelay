@@ -1287,6 +1287,8 @@
               <label class="cb-label"><input type="checkbox" value="down" checked onchange="render(true)"> Down</label>
               <label class="cb-label"><input type="checkbox" value="disabled" checked onchange="render(true)">
                 Disabled</label>
+              <label class="cb-label"><input type="checkbox" value="excluded" checked onchange="render(true)">
+                Excluded</label>
             </div>
           </div>
         </div>
@@ -1323,7 +1325,12 @@
       <div id="autoupdate-container" class="provider-section">
         <!-- Auto-update settings generated here -->
       </div>
-      <h3 style="margin: 0 0 0.25rem; font-size: 1rem;">Providers</h3>
+      <h3 style="margin: 0 0 0.25rem; font-size: 1rem;">Ping Filtering Exceptions</h3>
+      <p style="color: var(--text-muted); margin: 0 0 1.25rem; font-size: 0.84rem;">Exclude models from pinging and routing based on criteria.</p>
+      <div id="filter-rules-container">
+        <!-- Filter rules UI generated here -->
+      </div>
+      <h3 style="margin: 2rem 0 0.25rem; font-size: 1rem;">Providers</h3>
       <p style="color: var(--text-muted); margin: 0 0 1.25rem; font-size: 0.84rem;">Configure API keys to enable models from different providers.</p>
       <div id="providers-container">
         <!-- Settings generated here -->
@@ -1464,6 +1471,7 @@
     const PROVIDER_ERROR_MAX_AGE_MS = 120 * 60_000;
     let qwenOauthSessionId = null;
     let qwenOauthPollTimer = null;
+    let filterRules = { minSweScore: null, excludedProviders: [] };
 
 
 
@@ -1948,6 +1956,20 @@
         m.modelId.toLowerCase().includes(searchTerm)
       );
 
+      // 1.5. Apply Filter Rules (minSweScore, excludedProviders) - marks as excluded for display
+      const { minSweScore, excludedProviders } = filterRules;
+      const hasFilterRules = minSweScore != null && minSweScore > 0 || (excludedProviders && excludedProviders.length > 0);
+      if (hasFilterRules) {
+        filtered = filtered.map(m => {
+          const isExcludedProvider = excludedProviders && excludedProviders.includes(m.providerKey);
+          const isBelowMinSwe = typeof minSweScore === 'number' && typeof m.intell === 'number' && m.intell < minSweScore;
+          if (isExcludedProvider || isBelowMinSwe) {
+            return { ...m, status: 'excluded', _excludedReason: isExcludedProvider ? 'provider' : 'swe' };
+          }
+          return m;
+        });
+      }
+
       // 2. Apply Checkbox Filters
       const getChecked = (id) => Array.from(document.querySelectorAll(`#${id} input:checked`)).map(cb => cb.value);
       const allChecked = (id) => document.querySelectorAll(`#${id} input`).length === document.querySelectorAll(`#${id} input:checked`).length;
@@ -2030,8 +2052,9 @@
         // Update model name cell (ban status can change)
         const modelCell = row.cells[1];
         const isBannedRow = m.status === 'banned';
-        modelCell.style.opacity = isBannedRow ? '0.5' : '1';
-        modelCell.querySelector('div').firstChild.textContent = (isBannedRow ? '🚫 ' : '') + m.label;
+        const isExcludedRow = m.status === 'excluded';
+        row.style.opacity = isExcludedRow || isBannedRow ? '0.5' : '1';
+        modelCell.querySelector('div').firstChild.textContent = (isBannedRow ? '🚫 ' : (isExcludedRow ? '⛔ ' : '')) + m.label;
         modelCell.onclick = () => openDrawer(m);
 
         // Update QoS
@@ -2046,7 +2069,7 @@
         const statusCell = row.cells[6];
         statusCell.innerHTML = `
             <div style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 6px; height: 6px; border-radius: 50%; background: ${m.status === 'up' ? 'var(--success)' : (m.status === 'disabled' || m.status === 'banned') ? 'var(--text-muted)' : 'var(--error)'}"></span>
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: ${m.status === 'up' ? 'var(--success)' : (m.status === 'disabled' || m.status === 'banned' || m.status === 'excluded') ? 'var(--text-muted)' : 'var(--error)'}"></span>
               <span style="font-size: 0.75rem; font-weight: 500; text-transform: capitalize;">${m.status === 'noauth' ? 'No Auth' : m.status}</span>
             </div>
           `;
@@ -2085,6 +2108,7 @@
 
     function createRow(m) {
       const tr = document.createElement('tr');
+      tr.style.opacity = m.status === 'excluded' || m.status === 'banned' ? '0.5' : '1';
       const hasPing = m.avg !== Infinity && m.avg !== null;
       const pingClass = getPingAnimClass(m.avg);
       const pingSpeed = getPingSpeed(m.avg);
@@ -2099,8 +2123,8 @@
               <div class="pin-row-btn ${isPinnedRow ? 'pinned' : ''}" onclick="pinModel('${isPinnedRow ? '' : m.modelId}')" title="${isPinnedRow ? 'Unpin model' : 'Pin model'}">📌</div>
             </div>
           </td>
-          <td style="opacity: ${m.status === 'banned' ? '0.5' : '1'}; cursor:pointer;" onclick='openDrawer(${JSON.stringify(m).replace(/'/g, "&apos;")})'>
-            <div style="font-weight: 600;">${m.status === 'banned' ? '🚫 ' : ''}${m.label}</div>
+          <td style="cursor:pointer;" onclick='openDrawer(${JSON.stringify(m).replace(/'/g, "&apos;")})'>
+            <div style="font-weight: 600;">${m.status === 'banned' ? '🚫 ' : (m.status === 'excluded' ? '⛔ ' : '')}${m.label}</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">${m.providerKey}</div>
           </td>
           <td>
@@ -2128,7 +2152,7 @@
           </td>
           <td>
             <div style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 6px; height: 6px; border-radius: 50%; background: ${m.status === 'up' ? 'var(--success)' : (m.status === 'disabled' || m.status === 'banned') ? 'var(--text-muted)' : 'var(--error)'}"></span>
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: ${m.status === 'up' ? 'var(--success)' : (m.status === 'disabled' || m.status === 'banned' || m.status === 'excluded') ? 'var(--text-muted)' : 'var(--error)'}"></span>
               <span style="font-size: 0.75rem; font-weight: 500; text-transform: capitalize;">${m.status === 'noauth' ? 'No Auth' : m.status}</span>
             </div>
           </td>
@@ -2330,15 +2354,104 @@
       `;
     }
 
+    function renderFilterRules(filterRulesFromServer, providers) {
+      const container = document.getElementById('filter-rules-container');
+      if (!container || !filterRulesFromServer) return;
+
+      // Store globally for immediate table filtering
+      filterRules = {
+        minSweScore: filterRulesFromServer.minSweScore,
+        excludedProviders: filterRulesFromServer.excludedProviders || []
+      };
+
+      const minSweScore = filterRules.minSweScore;
+      const excludedProviders = filterRules.excludedProviders || [];
+
+      const providerCheckboxes = providers.map(p => `
+        <label style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f8fafc; border-radius: 8px; cursor: pointer; font-size: 0.875rem;">
+          <input type="checkbox" class="excluded-provider-checkbox" value="${escapeHtml(p.key)}" ${excludedProviders.includes(p.key) ? 'checked' : ''}>
+          ${escapeHtml(p.name)}
+        </label>
+      `).join('');
+
+      container.innerHTML = `
+        <div class="autoupdate-panel">
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div>
+              <label style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.875rem;">
+                Minimum SWE Score
+              </label>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="number" id="min-swe-score" min="0" max="100" step="1" value="${minSweScore !== null ? Math.round(minSweScore * 100) : ''}" placeholder="e.g. 50" style="width: 80px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem;">
+                <span style="color: var(--text-muted); font-size: 0.875rem;">%</span>
+              </div>
+              <p style="color: var(--text-muted); font-size: 0.78rem; margin-top: 6px;">Models with SWE% below this threshold will be excluded from pinging and routing.</p>
+            </div>
+
+            <div>
+              <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.875rem;">
+                Excluded Providers
+              </label>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                ${providerCheckboxes}
+              </div>
+              <p style="color: var(--text-muted); font-size: 0.78rem; margin-top: 6px;">All models from these providers will be excluded from pinging and routing.</p>
+            </div>
+
+            <div>
+              <button class="btn" onclick="saveFilterRules()">Save Filter Rules</button>
+              <span id="filter-rules-save-status" class="autoupdate-save-status"></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveFilterRules() {
+      const minSweInput = document.getElementById('min-swe-score');
+      const minSweValue = minSweInput.value.trim();
+      let minSweScore = null;
+      if (minSweValue !== '') {
+        const parsed = parseInt(minSweValue, 10);
+        if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+          minSweScore = parsed / 100;
+        }
+      }
+
+      const checkboxes = document.querySelectorAll('.excluded-provider-checkbox:checked');
+      const excludedProviders = Array.from(checkboxes).map(cb => cb.value);
+
+      try {
+        const res = await fetch('/api/filter-rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minSweScore, excludedProviders })
+        });
+        if (!res.ok) throw new Error('Failed to save filter rules');
+        const data = await res.json();
+        document.getElementById('filter-rules-save-status').textContent = 'Saved!';
+        setTimeout(() => {
+          document.getElementById('filter-rules-save-status').textContent = '';
+        }, 2000);
+        fetchData();
+      } catch (err) {
+        document.getElementById('filter-rules-save-status').textContent = err.message || 'Failed to save.';
+        document.getElementById('filter-rules-save-status').style.color = 'var(--error)';
+      }
+    }
+
     async function loadSettings() {
       try {
-        const [providersRes, autoUpdateRes] = await Promise.all([
+        const [providersRes, autoUpdateRes, filterRulesRes] = await Promise.all([
           fetch('/api/config'),
           fetch('/api/autoupdate'),
+          fetch('/api/filter-rules'),
         ]);
         const providers = await providersRes.json();
         const autoUpdate = await autoUpdateRes.json();
+        const filterRules = await filterRulesRes.json();
         renderAutoUpdateSettings(autoUpdate);
+        renderFilterRules(filterRules, providers);
         const container = document.getElementById('providers-container');
         container.innerHTML = '';
 
