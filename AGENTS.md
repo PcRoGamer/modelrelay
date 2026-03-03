@@ -14,6 +14,10 @@ After completing any feature or fix, the agent MUST:
 
 This ensures the codebase remains in a working state at all times.
 
+## Git Commits
+
+When making a commit on behalf of the user, NEVER prefix your commit message with `fix:`, `feature:`, `feat:`, `chore:`, or any other prefix. Just write a descriptive sentence.
+
 ## Release Process (MANDATORY)
 
 When releasing a new version, follow this exact process:

@@ -22,6 +22,7 @@ import { buildOpenClawProviderConfig } from '../lib/onboard.js'
 import { resolveAutostartExecPath, resolveAutostartNodePath } from '../lib/autostart.js'
 import { getApiKey, getProviderPingIntervalMs } from '../lib/config.js'
 import { isQwenOauthAccessTokenValid, pollQwenOauthDeviceToken, resolveQwenCodeOauthAccessToken, startQwenOauthDeviceLogin } from '../lib/qwencodeAuth.js'
+import { toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -151,6 +152,32 @@ describe('provider api key resolution', () => {
       if (original == null) delete process.env.KILOCODE_API_KEY
       else process.env.KILOCODE_API_KEY = original
     }
+  })
+})
+
+describe('dynamic model score resolution', () => {
+  it('uses scores.js entry for OpenRouter models outside static sources', () => {
+    const model = toOpenRouterModelMeta({
+      id: 'google/gemma-3n-e2b-it:free',
+      name: 'Google: Gemma 3N E2B (free)',
+      context_length: 32768,
+    })
+
+    assert.ok(model)
+    assert.equal(model.intell, 0.25)
+    assert.equal(model.isEstimatedScore, false)
+  })
+
+  it('uses scores.js entry for KiloCode models when payload omits scores', () => {
+    const model = toKiloCodeModelMeta({
+      id: 'google/gemma-3n-e2b-it:free',
+      display_name: 'Gemma 3N E2B',
+      context_length: 32768,
+    })
+
+    assert.ok(model)
+    assert.equal(model.intell, 0.25)
+    assert.equal(model.isEstimatedScore, false)
   })
 })
 
