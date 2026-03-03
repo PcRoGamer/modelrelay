@@ -1755,41 +1755,57 @@
       const progressBar = document.getElementById('update-progress-bar');
       const percentText = document.getElementById('update-percent-text');
       const statusText = document.getElementById('update-status-text');
+      let sawDowntime = false;
+      let healthyResponsesAfterDowntime = 0;
       
       const checkServer = async () => {
         try {
-          const res = await fetch('/api/meta');
+          const res = await fetch('/api/meta', { cache: 'no-store' });
           if (res.ok) {
             const meta = await res.json();
-            // Verify it's actually back by checking version
             if (meta && meta.version) {
-              clearInterval(progressInterval);
-              progressBar.style.width = '100%';
-              percentText.textContent = '100%';
-              statusText.textContent = 'Successfully updated! Reloading...';
-              setTimeout(() => window.location.reload(), 1500);
-              return true;
+              if (!sawDowntime) {
+                statusText.textContent = 'Waiting for current server to shut down...';
+                return false;
+              }
+
+              healthyResponsesAfterDowntime += 1;
+              statusText.textContent = healthyResponsesAfterDowntime >= 2
+                ? 'Successfully updated! Reloading...'
+                : 'Server is back. Confirming stability...';
+
+              if (healthyResponsesAfterDowntime >= 2) {
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                percentText.textContent = '100%';
+                setTimeout(() => window.location.reload(), 1500);
+                return true;
+              }
             }
           }
         } catch (e) {
-          // Connection failed, server still down
+          sawDowntime = true;
+          healthyResponsesAfterDowntime = 0;
+          statusText.textContent = 'Server is restarting...';
         }
         return false;
       };
 
-      // Poll every 2 seconds
-      const pollInterval = setInterval(async () => {
-        const backOnline = await checkServer();
-        if (backOnline) clearInterval(pollInterval);
-      }, 2000);
-
-      // Stop after 3 minutes total
+      // Give the current process a brief head start to exit before probing.
       setTimeout(() => {
-        clearInterval(pollInterval);
-        clearInterval(progressInterval);
-        statusText.textContent = 'Update taking longer than expected. Please refresh manually.';
-        statusText.style.color = 'var(--error)';
-      }, 180000);
+        const pollInterval = setInterval(async () => {
+          const backOnline = await checkServer();
+          if (backOnline) clearInterval(pollInterval);
+        }, 2000);
+
+        // Stop after 3 minutes total
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          clearInterval(progressInterval);
+          statusText.textContent = 'Update taking longer than expected. Please refresh manually.';
+          statusText.style.color = 'var(--error)';
+        }, 180000);
+      }, 2500);
     }
 
     function calculateBestModel(models) {

@@ -21,6 +21,7 @@ import {
 import { buildOpenClawProviderConfig } from '../lib/onboard.js'
 import { resolveAutostartExecPath, resolveAutostartNodePath } from '../lib/autostart.js'
 import { getApiKey, getProviderPingIntervalMs } from '../lib/config.js'
+import { buildNpmInstallInvocation, buildWindowsPostUpdateRestartCommand, getForcedUpdateVersion, getLocalUpdateTarballPath, getLocalUpdateVersion, isRunningFromSource, shouldStopAutostartBeforeUpdate } from '../lib/update.js'
 import { isQwenOauthAccessTokenValid, pollQwenOauthDeviceToken, resolveQwenCodeOauthAccessToken, startQwenOauthDeviceLogin } from '../lib/qwencodeAuth.js'
 import { toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
 
@@ -39,6 +40,24 @@ function mockResult(overrides = {}) {
     pings: [],
     httpCode: null,
     ...overrides,
+  }
+}
+
+function withEnv(overrides, fn) {
+  const previous = {}
+  for (const [key, value] of Object.entries(overrides)) {
+    previous[key] = process.env[key]
+    if (value == null) delete process.env[key]
+    else process.env[key] = value
+  }
+
+  try {
+    return fn()
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key]
+      else process.env[key] = value
+    }
   }
 }
 
@@ -586,6 +605,80 @@ describe('parseOpenRouterKeyRateLimit', () => {
   it('returns null for invalid payloads', () => {
     assert.equal(parseOpenRouterKeyRateLimit(null), null)
     assert.equal(parseOpenRouterKeyRateLimit({ data: {} }), null)
+  })
+})
+
+describe('update restart coordination', () => {
+  it('keeps Unix-like services alive long enough to self-update when restart is deferred', () => {
+    assert.equal(shouldStopAutostartBeforeUpdate(true, 'linux'), false)
+    assert.equal(shouldStopAutostartBeforeUpdate(true, 'darwin'), false)
+  })
+
+  it('still stops background instances for normal updates and Windows handoff', () => {
+    assert.equal(shouldStopAutostartBeforeUpdate(false, 'linux'), true)
+    assert.equal(shouldStopAutostartBeforeUpdate(true, 'win32'), true)
+  })
+})
+
+describe('local update overrides', () => {
+  it('detects local tarball updates and derives the version from the filename', () => {
+    const tarballPath = join(ROOT, 'modelrelay-9.8.7.tgz')
+    writeFileSync(tarballPath, 'placeholder', 'utf8')
+
+    try {
+      withEnv({ MODELRELAY_UPDATE_TARBALL: tarballPath, MODELRELAY_UPDATE_VERSION: null }, () => {
+        assert.equal(getLocalUpdateTarballPath(), tarballPath)
+        assert.equal(getLocalUpdateVersion(), '9.8.7')
+        assert.equal(isRunningFromSource(), false)
+      })
+    } finally {
+      rmSync(tarballPath, { force: true })
+    }
+  })
+
+  it('prefers an explicit local update version override', () => {
+    const tarballPath = join(ROOT, 'modelrelay-build-under-test.tgz')
+    writeFileSync(tarballPath, 'placeholder', 'utf8')
+
+    try {
+      withEnv({ MODELRELAY_UPDATE_TARBALL: tarballPath, MODELRELAY_UPDATE_VERSION: '3.2.1' }, () => {
+        assert.equal(getLocalUpdateVersion(), '3.2.1')
+      })
+    } finally {
+      rmSync(tarballPath, { force: true })
+    }
+  })
+
+  it('accepts a forced update version for simpler local upgrade testing', () => {
+    withEnv({ MODELRELAY_FORCE_UPDATE_VERSION: '9.9.9' }, () => {
+      assert.equal(getForcedUpdateVersion(), '9.9.9')
+    })
+  })
+
+  it('ignores invalid forced update versions', () => {
+    withEnv({ MODELRELAY_FORCE_UPDATE_VERSION: 'next-build' }, () => {
+      assert.equal(getForcedUpdateVersion(), null)
+    })
+  })
+})
+
+describe('npm install invocation', () => {
+  it('builds a shell-safe Windows npm command for local tarballs', () => {
+    const tarballPath = 'C:\\Projects\\Elliptic\\free-model-router\\modelrelay-1.8.4.tgz'
+
+    withEnv({ MODELRELAY_UPDATE_TARBALL: tarballPath }, () => {
+      const invocation = buildNpmInstallInvocation('latest', 'win32')
+      assert.equal(invocation.command, 'npm')
+      assert.deepEqual(invocation.args, ['install', '-g', tarballPath])
+      assert.equal(invocation.shell, true)
+    })
+  })
+})
+
+describe('post-update restart command', () => {
+  it('restarts the autostart target only when autostart is configured', () => {
+    assert.equal(buildWindowsPostUpdateRestartCommand(true), 'timeout /t 2 /nobreak && modelrelay start --autostart')
+    assert.equal(buildWindowsPostUpdateRestartCommand(false), 'timeout /t 2 /nobreak && modelrelay')
   })
 })
 
