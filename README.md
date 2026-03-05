@@ -26,21 +26,16 @@
 - ⚡ **Lightning Fast:** The built-in benchmark continually evaluates metrics to pick the fastest and most capable LLM for your request.
 - 🔄 **OpenAI-Compatible:** A perfect drop-in replacement that works seamlessly with your existing tools, scripts, and workflows.
 
-## 🚀 Install
+## 🚀 Install via NPM
 
 ```bash
 npm install -g modelrelay
-```
 
-## ⚡ Quick Start
-
-```bash
-# 1) Onboard: save provider API keys and optionally auto-configure integrations
-modelrelay onboard
-
-# 2) Start the local router (default port 7352)
+# Start it
 modelrelay
 ```
+
+Once started, modelrelay is accessible at `http://localhost:7352/`.
 
 Router endpoint:
 
@@ -48,7 +43,37 @@ Router endpoint:
 - API key: any string
 - Model: `auto-fastest` (router picks actual backend)
 
-## OpenCode Quick Start
+## 🚀 Install via Docker
+
+### Prerequisites
+- Docker Engine
+- Docker Compose (the `docker compose` command)
+
+
+```bash
+mkdir modelrelay
+
+cd modelrelay
+
+curl -fsSL -o Dockerfile https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/Dockerfile
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/docker-compose.yml
+
+docker compose up -d --build
+```
+
+Once running, modelrelay is accessible at `http://localhost:7352/`.
+
+## 🔌 Installing Integrations
+
+Use `modelrelay onboard` to save provider keys and auto-configure integrations for OpenClaw or OpenCode.
+
+```bash
+modelrelay onboard
+```
+
+If you prefer manual setup, use the examples below.
+
+## OpenCode Integration
 
 `modelrelay onboard` can auto-configure OpenCode.
 
@@ -76,7 +101,7 @@ If you want manual setup, put this in `~/.config/opencode/opencode.json`:
 }
 ```
 
-## OpenClaw Quick Start
+## OpenClaw Integration
 
 `modelrelay onboard` can auto-configure OpenClaw.
 
