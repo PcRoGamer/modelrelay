@@ -30,17 +30,12 @@
 
 ```bash
 npm install -g modelrelay
-```
 
-## ⚡ Quick Start
-
-```bash
-# 1) Onboard: save provider API keys and optionally auto-configure integrations
-modelrelay onboard
-
-# 2) Start the local router (default port 7352)
+# Start it
 modelrelay
 ```
+
+Once started, modelrelay is accessible at `http://localhost:7352/`.
 
 Router endpoint:
 
@@ -66,8 +61,19 @@ curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/ellipticmarke
 docker compose up -d --build
 ```
 
+Once running, modelrelay is accessible at `http://localhost:7352/`.
 
-## OpenCode Quick Start
+## 🔌 Installing Integrations
+
+Use `modelrelay onboard` to save provider keys and auto-configure integrations for OpenClaw or OpenCode.
+
+```bash
+modelrelay onboard
+```
+
+If you prefer manual setup, use the examples below.
+
+## OpenCode Integration
 
 `modelrelay onboard` can auto-configure OpenCode.
 
@@ -95,7 +101,7 @@ If you want manual setup, put this in `~/.config/opencode/opencode.json`:
 }
 ```
 
-## OpenClaw Quick Start
+## OpenClaw Integration
 
 `modelrelay onboard` can auto-configure OpenClaw.
 
