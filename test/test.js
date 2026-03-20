@@ -25,7 +25,7 @@ import { resolveAutostartExecPath, resolveAutostartNodePath } from '../lib/autos
 import { exportConfigToken, getApiKey, getProviderBaseUrl, getProviderModelId, getProviderPingIntervalMs, importConfigToken } from '../lib/config.js'
 import { buildNpmInstallInvocation, buildWindowsPostUpdateRestartCommand, getForcedUpdateVersion, getLocalUpdateTarballPath, getLocalUpdateVersion, isRunningFromSource, shouldStopAutostartBeforeUpdate } from '../lib/update.js'
 import { isQwenOauthAccessTokenValid, pollQwenOauthDeviceToken, resolveQwenCodeOauthAccessToken, startQwenOauthDeviceLogin } from '../lib/qwencodeAuth.js'
-import { isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
+import { buildOpencodeHeaders, buildOpencodeProjectId, buildProviderRequestHeaders, isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, shouldRetryOptionalProviderWithBearer, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 
@@ -284,6 +284,70 @@ describe('provider api key resolution', () => {
     assert.equal(providerWantsBearerAuth({ providers: { opencode: { useBearerAuth: false } } }, 'opencode'), false)
     assert.equal(providerWantsBearerAuth({ providers: { kilocode: { useBearerAuth: false } } }, 'kilocode'), false)
     assert.equal(providerWantsBearerAuth({}, 'openrouter'), true)
+  })
+
+  it('builds stable OpenCode CLI headers for unauthenticated requests', () => {
+    assert.equal(buildOpencodeProjectId('C:/example/project'), buildOpencodeProjectId('C:/example/project'))
+    assert.match(buildOpencodeProjectId('C:/example/project'), /^[a-f0-9]{40}$/)
+
+    const headers = buildOpencodeHeaders({
+      projectSeed: 'C:/example/project',
+      sessionId: 'ses_test',
+      requestId: 'req_test',
+    })
+
+    assert.deepEqual(headers, {
+      'x-opencode-project': buildOpencodeProjectId('C:/example/project'),
+      'x-opencode-session': 'ses_test',
+      'x-opencode-request': 'req_test',
+      'x-opencode-client': 'cli',
+    })
+  })
+
+  it('adds OpenCode CLI headers to provider requests without requiring a bearer token', () => {
+    const headers = buildProviderRequestHeaders('opencode', {
+      projectSeed: 'C:/example/project',
+      sessionId: 'ses_test',
+      requestId: 'req_test',
+    })
+
+    assert.equal(headers['Content-Type'], 'application/json')
+    assert.equal(headers.Authorization, undefined)
+    assert.equal(headers['x-opencode-project'], buildOpencodeProjectId('C:/example/project'))
+    assert.equal(headers['x-opencode-session'], 'ses_test')
+    assert.equal(headers['x-opencode-request'], 'req_test')
+    assert.equal(headers['x-opencode-client'], 'cli')
+  })
+
+  it('retries optional providers with bearer auth when an unauthenticated probe is rejected', () => {
+    const config = {
+      apiKeys: { opencode: 'opencode-key' },
+      providers: { opencode: { useBearerAuth: false } },
+    }
+
+    assert.equal(
+      shouldRetryOptionalProviderWithBearer(config, 'opencode', { token: null }, '401', 'Missing API key.'),
+      true
+    )
+    assert.equal(
+      shouldRetryOptionalProviderWithBearer(config, 'opencode', { token: null }, '401', 'Unauthorized'),
+      true
+    )
+  })
+
+  it('does not retry optional providers with bearer auth when there is no fallback key or a token was already used', () => {
+    assert.equal(
+      shouldRetryOptionalProviderWithBearer({ apiKeys: {}, providers: { opencode: { useBearerAuth: false } } }, 'opencode', { token: null }, '401', 'Missing API key.'),
+      false
+    )
+    assert.equal(
+      shouldRetryOptionalProviderWithBearer({ apiKeys: { opencode: 'opencode-key' } }, 'opencode', { token: 'already-used' }, '401', 'Missing API key.'),
+      false
+    )
+    assert.equal(
+      shouldRetryOptionalProviderWithBearer({ apiKeys: { openrouter: 'openrouter-key' } }, 'openrouter', { token: null }, '401', 'Unauthorized'),
+      false
+    )
   })
 })
 
