@@ -3206,14 +3206,14 @@
               </div>`;
           }
 
-          const openAiCompatibleFieldsHtml = p.key === 'openai-compatible' ? `
+          const openAiCompatibleFieldsHtml = (p.key === 'openai-compatible' || p.key === 'ollama') ? `
             <div class="form-group" style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-              <input type="text" id="base-url-${p.key}" value="${escapeHtml(p.baseUrl || '')}" placeholder="https://your-endpoint.example/v1" style="flex:1;" onblur="updateProviderBaseUrl('${p.key}')">
+              <input type="text" id="base-url-${p.key}" value="${escapeHtml(p.baseUrl || '')}" placeholder="${p.key === 'ollama' ? 'https://ollama.com/v1' : 'https://your-endpoint.example/v1'}" style="flex:1;" onblur="updateProviderBaseUrl('${p.key}')">
             </div>
             <div class="form-group" style="display:flex; gap:8px; align-items:center; margin-top:8px;">
               <input type="text" id="model-id-${p.key}" value="${escapeHtml(p.modelId || '')}" placeholder="upstream-model-id" style="flex:1;" onblur="updateProviderModelId('${p.key}')">
             </div>
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Set the upstream base URL and exact model ID for this provider.</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Set the upstream base URL and exact model ID for this provider.${p.key === 'ollama' ? ' If base URL is blank, modelrelay uses https://ollama.com/v1 and expects an OLLAMA_API_KEY.' : ''}</div>
           ` : '';
 
           const qwenAuthActionsHtml = p.key === 'qwencode' ? `

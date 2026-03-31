@@ -25,7 +25,7 @@ import { resolveAutostartExecPath, resolveAutostartNodePath } from '../lib/autos
 import { exportConfigToken, getApiKey, getPinningMode, getProviderBaseUrl, getProviderModelId, getProviderPingIntervalMs, importConfigToken } from '../lib/config.js'
 import { buildNpmInstallInvocation, buildWindowsPostUpdateRestartCommand, getForcedUpdateVersion, getLocalUpdateTarballPath, getLocalUpdateVersion, isRunningFromSource, shouldStopAutostartBeforeUpdate } from '../lib/update.js'
 import { isQwenOauthAccessTokenValid, pollQwenOauthDeviceToken, resolveQwenCodeOauthAccessToken, startQwenOauthDeviceLogin } from '../lib/qwencodeAuth.js'
-import { buildOpencodeHeaders, buildOpencodeProjectId, buildProviderRequestHeaders, getPinnedModelCandidate, getPinnedModelMatches, isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, shouldRetryOptionalProviderWithBearer, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
+import { buildOpencodeHeaders, buildOpencodeProjectId, buildProviderRequestHeaders, extractOllamaModelRecords, getPinnedModelCandidate, getPinnedModelMatches, isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, shouldRetryOptionalProviderWithBearer, toOllamaModelMeta, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 
@@ -124,6 +124,12 @@ describe('sources data integrity', () => {
     assert.ok(sources['openai-compatible'])
     assert.equal(sources['openai-compatible'].name, 'OpenAI-Compatible')
     assert.ok(Array.isArray(sources['openai-compatible'].models))
+  })
+
+  it('includes Ollama provider', () => {
+    assert.ok(sources.ollama)
+    assert.equal(sources.ollama.name, 'Ollama')
+    assert.ok(Array.isArray(sources.ollama.models))
   })
 
   it('includes OpenCode Zen provider', () => {
@@ -257,6 +263,56 @@ describe('provider api key resolution', () => {
     }
   })
 
+  it('supports Ollama provider env vars for key, base URL, and model', () => {
+    const originalKey = process.env.OLLAMA_API_KEY
+    const originalBaseUrl = process.env.OLLAMA_BASE_URL
+    const originalModel = process.env.OLLAMA_MODEL
+
+    try {
+      delete process.env.OLLAMA_API_KEY
+      delete process.env.OLLAMA_BASE_URL
+      delete process.env.OLLAMA_MODEL
+
+      const config = {
+        apiKeys: { ollama: 'config-key' },
+        providers: { ollama: { baseUrl: 'https://ollama.com/v1', modelId: 'gpt-oss:120b' } },
+      }
+
+      assert.equal(getApiKey(config, 'ollama'), 'config-key')
+      assert.equal(getProviderBaseUrl(config, 'ollama'), 'https://ollama.com/v1')
+      assert.equal(getProviderModelId(config, 'ollama'), 'gpt-oss:120b')
+
+      process.env.OLLAMA_API_KEY = 'env-key'
+      process.env.OLLAMA_BASE_URL = 'https://ollama.com/v1'
+      process.env.OLLAMA_MODEL = 'llama3.3'
+
+      assert.equal(getApiKey(config, 'ollama'), 'env-key')
+      assert.equal(getProviderBaseUrl(config, 'ollama'), 'https://ollama.com/v1')
+      assert.equal(getProviderModelId(config, 'ollama'), 'llama3.3')
+    } finally {
+      if (originalKey == null) delete process.env.OLLAMA_API_KEY
+      else process.env.OLLAMA_API_KEY = originalKey
+
+      if (originalBaseUrl == null) delete process.env.OLLAMA_BASE_URL
+      else process.env.OLLAMA_BASE_URL = originalBaseUrl
+
+      if (originalModel == null) delete process.env.OLLAMA_MODEL
+      else process.env.OLLAMA_MODEL = originalModel
+    }
+  })
+
+  it('uses Ollama cloud base URL when none is configured', () => {
+    const originalBaseUrl = process.env.OLLAMA_BASE_URL
+
+    try {
+      delete process.env.OLLAMA_BASE_URL
+      assert.equal(getProviderBaseUrl({ providers: { ollama: {} } }, 'ollama'), null)
+    } finally {
+      if (originalBaseUrl == null) delete process.env.OLLAMA_BASE_URL
+      else process.env.OLLAMA_BASE_URL = originalBaseUrl
+    }
+  })
+
   it('supports OpenCode provider env var override', () => {
     const original = process.env.OPENCODE_API_KEY
 
@@ -273,19 +329,25 @@ describe('provider api key resolution', () => {
     }
   })
 
-  it('treats OpenCode and KiloCode auth as optional bearer auth providers', () => {
+  it('treats OpenCode and KiloCode auth as optional bearer auth providers, and local Ollama as optional', () => {
     assert.equal(isProviderAuthOptional({}, 'opencode'), true)
     assert.equal(isProviderAuthOptional({}, 'kilocode'), true)
+    assert.equal(isProviderAuthOptional({}, 'ollama'), false)
+    assert.equal(isProviderAuthOptional({ providers: { ollama: { baseUrl: 'http://127.0.0.1:11434' } } }, 'ollama'), true)
+    assert.equal(isProviderAuthOptional({ providers: { ollama: { baseUrl: 'http://localhost:11434' } } }, 'ollama'), true)
     assert.equal(isProviderAuthOptional({}, 'openrouter'), false)
 
     assert.equal(isProviderBearerAuthEnabled({}, 'opencode'), true)
     assert.equal(isProviderBearerAuthEnabled({}, 'kilocode'), true)
+    assert.equal(isProviderBearerAuthEnabled({}, 'ollama'), true)
     assert.equal(isProviderBearerAuthEnabled({ providers: { opencode: { useBearerAuth: false } } }, 'opencode'), false)
     assert.equal(isProviderBearerAuthEnabled({ providers: { kilocode: { useBearerAuth: false } } }, 'kilocode'), false)
+    assert.equal(isProviderBearerAuthEnabled({ providers: { ollama: { useBearerAuth: false } } }, 'ollama'), true)
 
     assert.equal(providerWantsBearerAuth({}, 'opencode'), true)
     assert.equal(providerWantsBearerAuth({ providers: { opencode: { useBearerAuth: false } } }, 'opencode'), false)
     assert.equal(providerWantsBearerAuth({ providers: { kilocode: { useBearerAuth: false } } }, 'kilocode'), false)
+    assert.equal(providerWantsBearerAuth({ providers: { ollama: { useBearerAuth: false } } }, 'ollama'), true)
     assert.equal(providerWantsBearerAuth({}, 'openrouter'), true)
   })
 
@@ -355,6 +417,30 @@ describe('provider api key resolution', () => {
 })
 
 describe('dynamic model score resolution', () => {
+  it('extracts Ollama model records from tags payloads', () => {
+    const payload = {
+      models: [
+        { name: 'gpt-oss:120b', model: 'gpt-oss:120b' },
+        { name: 'llama3.3', model: 'llama3.3' },
+      ],
+    }
+
+    assert.deepEqual(extractOllamaModelRecords(payload), payload.models)
+    assert.deepEqual(extractOllamaModelRecords(null), [])
+  })
+
+  it('uses scores.js entries for Ollama models when available', () => {
+    const model = toOllamaModelMeta({
+      name: 'openai/gpt-oss-120b',
+      model: 'openai/gpt-oss-120b',
+    })
+
+    assert.ok(model)
+    assert.equal(model.providerKey, 'ollama')
+    assert.equal(model.label, 'GPT OSS 120B')
+    assert.equal(model.isEstimatedScore, false)
+  })
+
   it('uses scores.js entry for OpenRouter models outside static sources', () => {
     const model = toOpenRouterModelMeta({
       id: 'google/gemma-3n-e2b-it:free',

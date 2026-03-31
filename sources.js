@@ -145,6 +145,11 @@ export const sources = {
     "url": "",
     "models": []
   },
+  "ollama": {
+    "name": "Ollama",
+    "url": "",
+    "models": []
+  },
   "openrouter": {
     "name": "OpenRouter",
     "url": "https://openrouter.ai/api/v1/chat/completions",
