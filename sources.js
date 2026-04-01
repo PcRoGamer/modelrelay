@@ -237,6 +237,8 @@ export const sources = {
     "url": "https://openrouter.ai/api/v1/chat/completions",
     "models": [
       ["qwen/qwen3-coder:free", "Qwen3 Coder", "256k"],
+      ["xiaomi/mimo-v2-pro:free", "MiMo V2 Omni Pro", "1M"],
+      ["xiaomi/mimo-v2-omni:free", "MiMo V2 Omni", "1M"],
       ["stepfun/step-3.5-flash:free", "Step 3.5 Flash", "256k"],
       ["deepseek/deepseek-r1-0528:free", "DeepSeek R1 0528", "128k"],
       ["qwen/qwen3-next-80b-a3b-instruct:free", "Qwen3 80B Instruct", "128k"],
