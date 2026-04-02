@@ -506,8 +506,14 @@ describe('dynamic model score resolution', () => {
     })
 
     assert.ok(model)
-    assert.equal(model.intell, 0.5622)
+    assert.equal(model.intell, 0.822)
     assert.equal(model.isEstimatedScore, false)
+  })
+
+  it('keeps MiniMax M-series SWE scores monotonic as versions increase', () => {
+    assert.ok(getScore('minimax-m2') < getScore('minimax-m2.1'))
+    assert.ok(getScore('minimax-m2.1') < getScore('minimax-m2.5'))
+    assert.ok(getScore('minimax-m2.5') < getScore('minimax-m2.7'))
   })
 
   it('uses scores.js entry for OpenRouter models outside static sources', () => {

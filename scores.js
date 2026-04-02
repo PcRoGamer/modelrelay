@@ -61,7 +61,7 @@ export const scores = {
   "minimax/minimax-m2.5": 0.802,
   "minimaxai/minimax-m2": 0.694,
   "minimaxai/minimax-m2.1": 0.74,
-  "minimax-m2.7": 0.5622,
+  "minimax-m2.7": 0.822,
   "mistral-small-3.2-24b-instruct-2506": 0.32,
   "mistralai/devstral-2-123b-instruct-2512": 0.722,
   "mistralai/magistral-small-2506": 0.45,
