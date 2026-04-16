@@ -1,8 +1,11 @@
 # 🚀 modelrelay
 
 [![npm version](https://img.shields.io/npm/v/modelrelay?color=green&style=flat-square)](https://npmjs.com/package/modelrelay)
-[![GitHub stars](https://img.shields.io/github/stars/ellipticmarketing/modelrelay?style=flat-square)](https://github.com/ellipticmarketing/modelrelay/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/PcRoGamer/modelrelay?style=flat-square)](https://github.com/PcRoGamer/modelrelay/stargazers)
 [![Join Discord](https://img.shields.io/badge/Join_Discord-5865F2?style=flat-square&logo=discord)](https://discord.gg/AqX6Sawq5w)
+
+> **Fork by [@PcRoGamer](https://github.com/PcRoGamer)**  
+> **Original project by [Elliptic Marketing](https://github.com/ellipticmarketing/modelrelay)**
 
 [**Join our Discord**](https://discord.gg/AqX6Sawq5w) for discussions, feature requests, and community support.
 
@@ -55,8 +58,8 @@ mkdir modelrelay
 
 cd modelrelay
 
-curl -fsSL -o Dockerfile https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/Dockerfile
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/docker-compose.yml
+curl -fsSL -o Dockerfile https://raw.githubusercontent.com/PcRoGamer/modelrelay/master/Dockerfile
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/PcRoGamer/modelrelay/master/docker-compose.yml
 
 docker compose up -d --build
 ```
@@ -318,4 +321,9 @@ actual install still comes from the tarball path.
 
 ---
 
-⭐️ If you find modelrelay useful, please consider [starring the repo](https://github.com/ellipticmarketing/modelrelay)!
+⭐️ If you find modelrelay useful, please consider [starring the repo](https://github.com/PcRoGamer/modelrelay)!
+
+## Credits
+
+- **Original project:** [ellipticmarketing/modelrelay](https://github.com/ellipticmarketing/modelrelay)
+- **Fork by:** [@PcRoGamer](https://github.com/PcRoGamer) - added multi-key rotation support
