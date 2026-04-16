@@ -227,6 +227,46 @@ For `Qwen Code`, modelrelay supports both API keys and Qwen OAuth cached credent
 If OAuth credentials exist, modelrelay will use them and refresh access tokens automatically.
 You can also start OAuth directly from the Web UI Providers tab using `Login with Qwen Code`.
 
+### Multi-Key Rotation (NEW)
+
+modelrelay supports multiple API keys per provider with automatic rotation and failover.
+
+**Configuration** (`~/.modelrelay.json`):
+```json
+{
+  "apiKeysV2": {
+    "ollama": {
+      "keys": [
+        {"key": "1d151109...", "weight": 50, "priority": 1},
+        {"key": "4527272d...", "weight": 50, "priority": 2}
+      ],
+      "rotation": "round-robin",
+      "fallback": true
+    }
+  }
+}
+```
+
+**Rotation strategies:**
+- `round-robin` — cycle through keys evenly (default)
+- `weighted` — distribute based on key weights
+- `priority` — try primary keys first
+- `random` — random selection
+
+**Features:**
+- Automatic failover when a key fails (rate limited, expired, etc.)
+- Cooldown mechanism to temporarily skip failed keys
+- Backward compatible with single-key `apiKeys` config
+
+**Per-key options:**
+- `weight` (1-100) — higher weight = more usage in weighted mode
+- `priority` (number) — lower = tried first in priority mode
+- `rateLimitRPM` — requests per minute limit (default: 60)
+- `rateLimitRPD` — requests per day limit (default: 10000)
+
+**Environment variables** still work for single keys:
+- `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OLLAMA_API_KEY`, etc.
+
 For hosted Ollama, set `OLLAMA_API_KEY` and optionally override `OLLAMA_BASE_URL` / `OLLAMA_MODEL`.
 If you leave the Ollama base URL blank in the UI, modelrelay defaults to `https://ollama.com/v1`.
 With a valid Ollama API key, modelrelay will discover available Ollama models automatically.
