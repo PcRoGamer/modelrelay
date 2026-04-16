@@ -18,14 +18,14 @@ import {
   isRetryableProxyStatus,
   parseArgs,
   parseOpenRouterKeyRateLimit,
+  selectNextApiKeyFromPool,
   VERDICT_ORDER,
 } from '../lib/utils.js'
 import { buildOpenClawProviderConfig } from '../lib/onboard.js'
 import { resolveAutostartExecPath, resolveAutostartNodePath } from '../lib/autostart.js'
-import { exportConfigToken, getApiKey, getPinningMode, getProviderBaseUrl, getProviderModelId, getProviderPingIntervalMs, importConfigToken } from '../lib/config.js'
+import { exportConfigToken, getApiKey, getApiKeyPool, getMaxTurns, getPinningMode, getProviderBaseUrl, getProviderModelId, getProviderPingIntervalMs, hasMultipleKeys, importConfigToken, normalizeConfigShape } from '../lib/config.js'
 import { buildNpmInstallInvocation, buildWindowsPostUpdateRestartCommand, getForcedUpdateVersion, getLocalUpdateTarballPath, getLocalUpdateVersion, isRunningFromSource, shouldStopAutostartBeforeUpdate } from '../lib/update.js'
-import { isQwenOauthAccessTokenValid, pollQwenOauthDeviceToken, resolveQwenCodeOauthAccessToken, startQwenOauthDeviceLogin } from '../lib/qwencodeAuth.js'
-import { buildOpencodeHeaders, buildOpencodeProjectId, buildProviderRequestHeaders, extractOllamaModelRecords, getPinnedModelCandidate, getPinnedModelMatches, isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, shouldRetryOptionalProviderWithBearer, toOllamaModelMeta, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
+import { buildOpencodeHeaders, buildOpencodeProjectId, buildProviderRequestHeaders, extractOllamaModelRecords, getAccountStatus, getPinnedModelCandidate, getPinnedModelMatches, isProviderAuthOptional, isProviderBearerAuthEnabled, providerWantsBearerAuth, shouldRetryOptionalProviderWithBearer, toOllamaModelMeta, toOpenCodeModelMeta, toOpenRouterModelMeta, toKiloCodeModelMeta } from '../lib/server.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 
@@ -67,13 +67,13 @@ describe('config helpers', () => {
     const config = {
       providers: {
         nvidia: { pingIntervalMinutes: 5 },
-        qwencode: { pingIntervalMinutes: '10' },
+        kilocode: { pingIntervalMinutes: '10' },
         openrouter: { pingIntervalMinutes: 0 }, // invalid
       }
     }
 
     assert.equal(getProviderPingIntervalMs(config, 'nvidia'), 5 * 60_000)
-    assert.equal(getProviderPingIntervalMs(config, 'qwencode'), 10 * 60_000)
+    assert.equal(getProviderPingIntervalMs(config, 'kilocode'), 10 * 60_000)
     assert.equal(getProviderPingIntervalMs(config, 'openrouter'), 30 * 60_000) // default
     assert.equal(getProviderPingIntervalMs(config, 'missing'), 30 * 60_000) // default
     assert.equal(getPinningMode(config), 'canonical')
@@ -105,19 +105,16 @@ describe('config helpers', () => {
   })
 
   it('imports legacy plain-base64 config payloads', () => {
-    const json = JSON.stringify({ apiKeys: { qwencode: 'abc' }, providers: {} })
+    const json = JSON.stringify({ apiKeys: { kilocode: 'abc' }, providers: {} })
     const plainBase64 = Buffer.from(json, 'utf8').toString('base64')
     const imported = importConfigToken(plainBase64)
-    assert.equal(imported.apiKeys.qwencode, 'abc')
+    assert.equal(imported.apiKeys.kilocode, 'abc')
   })
 })
 
 describe('sources data integrity', () => {
-  it('includes Qwen Code provider', () => {
-    assert.ok(sources.qwencode)
-    assert.equal(sources.qwencode.name, 'Qwen Code')
-    assert.ok(Array.isArray(sources.qwencode.models))
-    assert.ok(sources.qwencode.models.length > 0)
+  it('does not include the removed Qwen Code provider', () => {
+    assert.equal('qwencode' in sources, false)
   })
 
   it('includes OpenAI-compatible provider', () => {
@@ -185,7 +182,7 @@ describe('sources data integrity', () => {
 })
 
 describe('provider api key resolution', () => {
-  it('supports Qwen Code provider env var and DashScope fallback', () => {
+  it('does not resolve the removed Qwen Code provider from env vars', () => {
     const originalQwen = process.env.QWEN_CODE_API_KEY
     const originalDashScope = process.env.DASHSCOPE_API_KEY
 
@@ -195,10 +192,10 @@ describe('provider api key resolution', () => {
       assert.equal(getApiKey({ apiKeys: {} }, 'qwencode'), null)
 
       process.env.DASHSCOPE_API_KEY = 'dashscope-key'
-      assert.equal(getApiKey({ apiKeys: {} }, 'qwencode'), 'dashscope-key')
+      assert.equal(getApiKey({ apiKeys: {} }, 'qwencode'), null)
 
       process.env.QWEN_CODE_API_KEY = 'qwen-code-key'
-      assert.equal(getApiKey({ apiKeys: {} }, 'qwencode'), 'qwen-code-key')
+      assert.equal(getApiKey({ apiKeys: {} }, 'qwencode'), null)
     } finally {
       if (originalQwen == null) delete process.env.QWEN_CODE_API_KEY
       else process.env.QWEN_CODE_API_KEY = originalQwen
@@ -498,6 +495,30 @@ describe('dynamic model score resolution', () => {
     assert.equal(getScore('rnj-1:8b'), 0.208)
   })
 
+  it('resolves researched benchmark scores for newly discovered coding models', () => {
+    assert.equal(getScore('arcee-ai/trinity-large-thinking:free'), 0.632)
+    assert.equal(getScore('bytedance-seed/dola-seed-2.0-pro:free'), 0.765)
+    assert.equal(getScore('glm-5.1'), 0.584)
+    assert.equal(getScore('google/gemma-4-26b-a4b-it:free'), 0.771)
+    assert.equal(getScore('google/gemma-4-31b-it:free'), 0.8)
+  })
+
+  it('maps Gemma 4 Ollama aliases onto researched score entries', () => {
+    assert.equal(resolveAliasedModelId('gemma4:26b'), 'google/gemma-4-26b-a4b-it')
+    assert.equal(resolveAliasedModelId('gemma4:31b'), 'google/gemma-4-31b-it')
+    assert.equal(getScore('gemma4:31b'), 0.8)
+
+    const model = toOllamaModelMeta({
+      name: 'gemma4:31b',
+      model: 'gemma4:31b',
+    })
+
+    assert.ok(model)
+    assert.equal(model.label, 'Gemma 4 31B')
+    assert.equal(model.intell, 0.8)
+    assert.equal(model.isEstimatedScore, false)
+  })
+
   it('maps Ollama cloud remote models to canonical score entries', () => {
     const model = toOllamaModelMeta({
       name: 'Minimax-m2.7:cloud',
@@ -528,6 +549,24 @@ describe('dynamic model score resolution', () => {
     assert.equal(model.isEstimatedScore, false)
   })
 
+  it('uses researched score entries for newly discovered OpenRouter coding models', () => {
+    const gemma = toOpenRouterModelMeta({
+      id: 'google/gemma-4-31b-it:free',
+      name: 'Google: Gemma 4 31B (free)',
+      context_length: 262144,
+    })
+
+    assert.ok(gemma)
+    assert.equal(gemma.label, 'Gemma 4 31B')
+    assert.equal(gemma.intell, 0.8)
+    assert.equal(gemma.isEstimatedScore, false)
+  })
+
+  it('ignores safety-only dynamic models that should not be routed as coding models', () => {
+    assert.equal(toKiloCodeModelMeta({ id: 'meta-llama/llama-guard-4-12b:free' }), null)
+    assert.equal(toOpenRouterModelMeta({ id: 'meta-llama/llama-guard-4-12b:free' }), null)
+  })
+
   it('uses scores.js entry for KiloCode models when payload omits scores', () => {
     const model = toKiloCodeModelMeta({
       id: 'google/gemma-3n-e2b-it:free',
@@ -537,6 +576,18 @@ describe('dynamic model score resolution', () => {
 
     assert.ok(model)
     assert.equal(model.intell, 0.25)
+    assert.equal(model.isEstimatedScore, false)
+  })
+
+  it('uses researched score entries for newly discovered KiloCode coding models', () => {
+    const model = toKiloCodeModelMeta({
+      id: 'arcee-ai/trinity-large-thinking:free',
+      display_name: 'Arcee Trinity Large Thinking',
+    })
+
+    assert.ok(model)
+    assert.equal(model.label, 'Trinity Large Thinking')
+    assert.equal(model.intell, 0.632)
     assert.equal(model.isEstimatedScore, false)
   })
 
@@ -602,112 +653,6 @@ describe('dynamic model score resolution', () => {
     assert.deepEqual(canonicalizeModelId('gpt-oss:120b'), { base: 'openai/gpt-oss-120b', unprefixed: 'gpt-oss-120b' })
     assert.deepEqual(canonicalizeModelId('Minimax-m2.7:cloud'), { base: 'minimax-m2.7', unprefixed: 'minimax-m2.7' })
     assert.deepEqual(canonicalizeModelId('x-ai/grok-code-fast-1:optimized:free'), { base: 'x-ai/grok-code-fast-1', unprefixed: 'grok-code-fast-1' })
-  })
-})
-
-describe('Qwen OAuth auth cycle', () => {
-  it('starts Qwen OAuth device login with PKCE', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = async (url, options) => {
-      assert.equal(url, 'https://chat.qwen.ai/api/v1/oauth2/device/code')
-      assert.equal(options.method, 'POST')
-      assert.equal(typeof options.body, 'string')
-      assert.ok(options.body.includes('code_challenge='))
-      return {
-        ok: true,
-        async json() {
-          return {
-            device_code: 'device-code',
-            user_code: 'ABCD-EFGH',
-            verification_uri: 'https://chat.qwen.ai/device',
-            verification_uri_complete: 'https://chat.qwen.ai/device?code=ABCD-EFGH',
-            expires_in: 600,
-          }
-        },
-      }
-    }
-
-    try {
-      const session = await startQwenOauthDeviceLogin()
-      assert.equal(session.deviceCode, 'device-code')
-      assert.equal(session.userCode, 'ABCD-EFGH')
-      assert.equal(session.verificationUriComplete, 'https://chat.qwen.ai/device?code=ABCD-EFGH')
-      assert.equal(typeof session.codeVerifier, 'string')
-      assert.ok(session.codeVerifier.length > 20)
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('returns pending for authorization_pending device polling', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = async () => ({
-      ok: false,
-      status: 400,
-      async json() {
-        return { error: 'authorization_pending' }
-      },
-    })
-
-    try {
-      const result = await pollQwenOauthDeviceToken({ deviceCode: 'device-code', codeVerifier: 'code-verifier' })
-      assert.equal(result.status, 'pending')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  it('accepts non-expired OAuth access tokens', () => {
-    const now = Date.now()
-    assert.equal(isQwenOauthAccessTokenValid({ access_token: 'token', expiry_date: now + 120_000 }, now), true)
-    assert.equal(isQwenOauthAccessTokenValid({ access_token: 'token', expiry_date: now + 10_000 }, now), false)
-  })
-
-  it('refreshes Qwen OAuth token and writes updated credentials', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'modelrelay-qwen-oauth-'))
-    const credsDir = join(tempDir, '.qwen')
-    const credsPath = join(credsDir, 'oauth_creds.json')
-    mkdirSync(credsDir, { recursive: true })
-    writeFileSync(credsPath, JSON.stringify({
-      access_token: 'expired-token',
-      refresh_token: 'refresh-token',
-      token_type: 'Bearer',
-      expiry_date: Date.now() - 60_000,
-    }, null, 2))
-
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = async (url, options) => {
-      assert.equal(url, 'https://chat.qwen.ai/api/v1/oauth2/token')
-      assert.equal(options.method, 'POST')
-      assert.equal(typeof options.body, 'string')
-      assert.ok(options.body.includes('grant_type=refresh_token'))
-      return {
-        ok: true,
-        async json() {
-          return {
-            access_token: 'new-access-token',
-            refresh_token: 'new-refresh-token',
-            token_type: 'Bearer',
-            expires_in: 3600,
-          }
-        },
-      }
-    }
-
-    try {
-      const token = await resolveQwenCodeOauthAccessToken({ credentialsPath: credsPath })
-      assert.equal(token, 'new-access-token')
-
-      const updated = JSON.parse(readFileSync(credsPath, 'utf8'))
-      assert.equal(updated.access_token, 'new-access-token')
-      assert.equal(updated.refresh_token, 'new-refresh-token')
-      assert.equal(updated.token_type, 'Bearer')
-      assert.equal(typeof updated.expiry_date, 'number')
-      assert.ok(updated.expiry_date > Date.now())
-    } finally {
-      globalThis.fetch = originalFetch
-      rmSync(tempDir, { recursive: true, force: true })
-    }
   })
 })
 
@@ -979,6 +924,50 @@ describe('parseArgs', () => {
     assert.equal(imported.command, 'config')
     assert.equal(imported.configAction, 'import')
     assert.equal(imported.configPayload, 'mrconf:v1:abc123')
+  })
+
+  it('parses config set-keys command', () => {
+    const result = parseArgs(argv('config', 'set-keys', 'kilocode', 'key1,key2,key3'))
+    assert.equal(result.command, 'config')
+    assert.equal(result.configAction, 'set-keys')
+    assert.equal(result.configProvider, 'kilocode')
+    assert.equal(result.configKeys, 'key1,key2,key3')
+  })
+
+  it('parses config add-key command', () => {
+    const result = parseArgs(argv('config', 'add-key', 'nvidia', 'nvapi-extra'))
+    assert.equal(result.command, 'config')
+    assert.equal(result.configAction, 'add-key')
+    assert.equal(result.configProvider, 'nvidia')
+    assert.equal(result.configKeys, 'nvapi-extra')
+  })
+
+  it('parses config remove-key command', () => {
+    const result = parseArgs(argv('config', 'remove-key', 'groq', '1'))
+    assert.equal(result.command, 'config')
+    assert.equal(result.configAction, 'remove-key')
+    assert.equal(result.configProvider, 'groq')
+    assert.equal(result.configKeys, '1')
+  })
+
+  it('parses config set-maxturns command', () => {
+    const result = parseArgs(argv('config', 'set-maxturns', 'kilocode', '20'))
+    assert.equal(result.command, 'config')
+    assert.equal(result.configAction, 'set-maxturns')
+    assert.equal(result.configProvider, 'kilocode')
+    assert.equal(result.configMaxTurns, '20')
+  })
+
+  it('parses config set-maxturns with 0 to disable', () => {
+    const result = parseArgs(argv('config', 'set-maxturns', 'kilocode', '0'))
+    assert.equal(result.command, 'config')
+    assert.equal(result.configAction, 'set-maxturns')
+    assert.equal(result.configMaxTurns, '0')
+  })
+
+  it('parses status command', () => {
+    const result = parseArgs(argv('status'))
+    assert.equal(result.command, 'status')
   })
 })
 
@@ -1282,5 +1271,200 @@ describe('package and entrypoint sanity', () => {
     assert.ok(binContent.startsWith('#!/usr/bin/env node'))
     assert.ok(binContent.includes("from '../lib/utils.js'"))
     assert.ok(binContent.includes("from '../lib/onboard.js'"))
+  })
+})
+
+describe('multi-account round-robin', () => {
+  describe('getApiKeyPool', () => {
+    it('returns single-element array for string key', () => {
+      const config = { apiKeys: { nvidia: 'nvapi-key1' } }
+      assert.deepEqual(getApiKeyPool(config, 'nvidia'), ['nvapi-key1'])
+    })
+
+    it('returns array for array keys', () => {
+      const config = { apiKeys: { kilocode: ['key1', 'key2', 'key3'] } }
+      assert.deepEqual(getApiKeyPool(config, 'kilocode'), ['key1', 'key2', 'key3'])
+    })
+
+    it('returns empty array for missing provider', () => {
+      const config = { apiKeys: {} }
+      assert.deepEqual(getApiKeyPool(config, 'nvidia'), [])
+    })
+
+    it('filters empty strings from array', () => {
+      const config = { apiKeys: { groq: ['key1', '', '  ', 'key2'] } }
+      assert.deepEqual(getApiKeyPool(config, 'groq'), ['key1', 'key2'])
+    })
+
+    it('trims whitespace from keys', () => {
+      const config = { apiKeys: { groq: ['  key1  ', '  key2  '] } }
+      assert.deepEqual(getApiKeyPool(config, 'groq'), ['key1', 'key2'])
+    })
+
+    it('env var overrides return single-element array', () => {
+      withEnv({ NVIDIA_API_KEY: 'env-key' }, () => {
+        const config = { apiKeys: { nvidia: ['file-key1', 'file-key2'] } }
+        assert.deepEqual(getApiKeyPool(config, 'nvidia'), ['env-key'])
+      })
+    })
+
+    it('ignores Qwen-specific env vars for the removed provider', () => {
+      withEnv({ DASHSCOPE_API_KEY: 'dashscope-key' }, () => {
+        assert.deepEqual(getApiKeyPool({ apiKeys: {} }, 'qwencode'), [])
+      })
+      withEnv({ QWEN_CODE_API_KEY: 'qwen-code-key' }, () => {
+        assert.deepEqual(getApiKeyPool({ apiKeys: {} }, 'qwencode'), [])
+      })
+    })
+  })
+
+  describe('getApiKey backward compatibility', () => {
+    it('returns first element for array keys', () => {
+      const config = { apiKeys: { kilocode: ['key1', 'key2', 'key3'] } }
+      assert.equal(getApiKey(config, 'kilocode'), 'key1')
+    })
+
+    it('returns string for string keys', () => {
+      const config = { apiKeys: { nvidia: 'nvapi-key1' } }
+      assert.equal(getApiKey(config, 'nvidia'), 'nvapi-key1')
+    })
+
+    it('returns null for empty array', () => {
+      const config = { apiKeys: { groq: [] } }
+      assert.equal(getApiKey(config, 'groq'), null)
+    })
+  })
+
+  describe('hasMultipleKeys', () => {
+    it('returns true for multiple array keys', () => {
+      const config = { apiKeys: { kilocode: ['key1', 'key2'] } }
+      assert.equal(hasMultipleKeys(config, 'kilocode'), true)
+    })
+
+    it('returns false for single string key', () => {
+      const config = { apiKeys: { nvidia: 'nvapi-key1' } }
+      assert.equal(hasMultipleKeys(config, 'nvidia'), false)
+    })
+
+    it('returns false for single-element array', () => {
+      const config = { apiKeys: { groq: ['key1'] } }
+      assert.equal(hasMultipleKeys(config, 'groq'), false)
+    })
+
+    it('returns false for missing provider', () => {
+      assert.equal(hasMultipleKeys({ apiKeys: {} }, 'nvidia'), false)
+    })
+  })
+
+  describe('getMaxTurns', () => {
+    it('returns configured value', () => {
+      const config = { providers: { kilocode: { maxTurns: 20 } } }
+      assert.equal(getMaxTurns(config, 'kilocode'), 20)
+    })
+
+    it('returns 0 when not configured', () => {
+      assert.equal(getMaxTurns({ providers: {} }, 'kilocode'), 0)
+      assert.equal(getMaxTurns({ providers: { kilocode: {} } }, 'kilocode'), 0)
+    })
+
+    it('returns 0 for invalid values', () => {
+      const config = { providers: { kilocode: { maxTurns: -1 } } }
+      assert.equal(getMaxTurns(config, 'kilocode'), 0)
+      const config2 = { providers: { kilocode: { maxTurns: 'abc' } } }
+      assert.equal(getMaxTurns(config2, 'kilocode'), 0)
+    })
+
+    it('floors fractional values', () => {
+      const config = { providers: { kilocode: { maxTurns: 10.7 } } }
+      assert.equal(getMaxTurns(config, 'kilocode'), 10)
+    })
+  })
+
+  describe('normalizeConfigShape with arrays', () => {
+    it('normalizes array apiKeys by trimming and filtering', () => {
+      const config = {
+        apiKeys: { kilocode: ['  key1  ', '', 'key2'] },
+        providers: {},
+      }
+      const normalized = normalizeConfigShape(config)
+      assert.deepEqual(normalized.apiKeys.kilocode, ['key1', 'key2'])
+    })
+
+    it('preserves string apiKeys unchanged', () => {
+      const config = {
+        apiKeys: { nvidia: '  nv-key  ' },
+        providers: {},
+      }
+      const normalized = normalizeConfigShape(config)
+      assert.equal(normalized.apiKeys.nvidia, 'nv-key')
+    })
+
+    it('handles mixed string and array apiKeys', () => {
+      const config = {
+        apiKeys: { nvidia: 'nv-key', kilocode: ['key1', 'key2'] },
+        providers: {},
+      }
+      const normalized = normalizeConfigShape(config)
+      assert.equal(normalized.apiKeys.nvidia, 'nv-key')
+      assert.deepEqual(normalized.apiKeys.kilocode, ['key1', 'key2'])
+    })
+
+    it('round-trips through export/import with array keys', () => {
+      const config = {
+        apiKeys: { kilocode: ['key1', 'key2'], nvidia: 'nv-key' },
+        providers: { kilocode: { enabled: true } },
+      }
+      const token = exportConfigToken(config)
+      const imported = importConfigToken(token)
+      assert.deepEqual(imported.apiKeys.kilocode, ['key1', 'key2'])
+      assert.equal(imported.apiKeys.nvidia, 'nv-key')
+    })
+  })
+
+  describe('getAccountStatus', () => {
+    it('returns empty when pool state is not initialized', () => {
+      const result = getAccountStatus({ apiKeys: { kilocode: ['k1', 'k2'] } })
+      assert.deepEqual(result, { providers: {} })
+    })
+  })
+
+  describe('selectNextApiKeyFromPool', () => {
+    it('returns null when every key is still inside cooldown', () => {
+      const now = 1_000_000
+      const pool = ['key1', 'key2']
+      const entry = {
+        currentIdx: 0,
+        accounts: new Map([
+          [0, { requests: 1, rateLimitedAt: now - 10_000 }],
+          [1, { requests: 1, rateLimitedAt: now - 20_000 }],
+        ]),
+      }
+
+      const selected = selectNextApiKeyFromPool(pool, entry, 0, now, 60_000)
+
+      assert.equal(selected, null)
+      assert.equal(entry.currentIdx, 0)
+      assert.equal(entry.accounts.get(0).requests, 1)
+      assert.equal(entry.accounts.get(1).requests, 1)
+    })
+
+    it('resets counters when only maxTurns exhaustion blocks the pool', () => {
+      const now = 1_000_000
+      const pool = ['key1', 'key2']
+      const entry = {
+        currentIdx: 0,
+        accounts: new Map([
+          [0, { requests: 2, rateLimitedAt: 0 }],
+          [1, { requests: 2, rateLimitedAt: 0 }],
+        ]),
+      }
+
+      const selected = selectNextApiKeyFromPool(pool, entry, 2, now, 60_000)
+
+      assert.equal(selected, 'key1')
+      assert.equal(entry.currentIdx, 1)
+      assert.equal(entry.accounts.get(0).requests, 1)
+      assert.equal(entry.accounts.get(1).requests, 0)
+    })
   })
 })

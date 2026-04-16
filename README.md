@@ -1,11 +1,8 @@
 # 🚀 modelrelay
 
 [![npm version](https://img.shields.io/npm/v/modelrelay?color=green&style=flat-square)](https://npmjs.com/package/modelrelay)
-[![GitHub stars](https://img.shields.io/github/stars/PcRoGamer/modelrelay?style=flat-square)](https://github.com/PcRoGamer/modelrelay/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/ellipticmarketing/modelrelay?style=flat-square)](https://github.com/ellipticmarketing/modelrelay/stargazers)
 [![Join Discord](https://img.shields.io/badge/Join_Discord-5865F2?style=flat-square&logo=discord)](https://discord.gg/AqX6Sawq5w)
-
-> **Fork by [@PcRoGamer](https://github.com/PcRoGamer)**  
-> **Original project by [Elliptic Marketing](https://github.com/ellipticmarketing/modelrelay)**
 
 [**Join our Discord**](https://discord.gg/AqX6Sawq5w) for discussions, feature requests, and community support.
 
@@ -58,8 +55,8 @@ mkdir modelrelay
 
 cd modelrelay
 
-curl -fsSL -o Dockerfile https://raw.githubusercontent.com/PcRoGamer/modelrelay/master/Dockerfile
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/PcRoGamer/modelrelay/master/docker-compose.yml
+curl -fsSL -o Dockerfile https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/Dockerfile
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/ellipticmarketing/modelrelay/master/docker-compose.yml
 
 docker compose up -d --build
 ```
@@ -223,52 +220,7 @@ Example:
   - `CODESTRAL_API_KEY`
   - `HYPERBOLIC_API_KEY`
   - `SCALEWAY_API_KEY`
-  - `QWEN_CODE_API_KEY` (or `DASHSCOPE_API_KEY`)
   - `GOOGLE_API_KEY`
-
-For `Qwen Code`, modelrelay supports both API keys and Qwen OAuth cached credentials (`~/.qwen/oauth_creds.json`).
-If OAuth credentials exist, modelrelay will use them and refresh access tokens automatically.
-You can also start OAuth directly from the Web UI Providers tab using `Login with Qwen Code`.
-
-### Multi-Key Rotation (NEW)
-
-modelrelay supports multiple API keys per provider with automatic rotation and failover.
-
-**Configuration** (`~/.modelrelay.json`):
-```json
-{
-  "apiKeysV2": {
-    "ollama": {
-      "keys": [
-        {"key": "1d151109...", "weight": 50, "priority": 1},
-        {"key": "4527272d...", "weight": 50, "priority": 2}
-      ],
-      "rotation": "round-robin",
-      "fallback": true
-    }
-  }
-}
-```
-
-**Rotation strategies:**
-- `round-robin` — cycle through keys evenly (default)
-- `weighted` — distribute based on key weights
-- `priority` — try primary keys first
-- `random` — random selection
-
-**Features:**
-- Automatic failover when a key fails (rate limited, expired, etc.)
-- Cooldown mechanism to temporarily skip failed keys
-- Backward compatible with single-key `apiKeys` config
-
-**Per-key options:**
-- `weight` (1-100) — higher weight = more usage in weighted mode
-- `priority` (number) — lower = tried first in priority mode
-- `rateLimitRPM` — requests per minute limit (default: 60)
-- `rateLimitRPD` — requests per day limit (default: 10000)
-
-**Environment variables** still work for single keys:
-- `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OLLAMA_API_KEY`, etc.
 
 For hosted Ollama, set `OLLAMA_API_KEY` and optionally override `OLLAMA_BASE_URL` / `OLLAMA_MODEL`.
 If you leave the Ollama base URL blank in the UI, modelrelay defaults to `https://ollama.com/v1`.
@@ -321,9 +273,4 @@ actual install still comes from the tarball path.
 
 ---
 
-⭐️ If you find modelrelay useful, please consider [starring the repo](https://github.com/PcRoGamer/modelrelay)!
-
-## Credits
-
-- **Original project:** [ellipticmarketing/modelrelay](https://github.com/ellipticmarketing/modelrelay)
-- **Fork by:** [@PcRoGamer](https://github.com/PcRoGamer) - added multi-key rotation support
+⭐️ If you find modelrelay useful, please consider [starring the repo](https://github.com/ellipticmarketing/modelrelay)!
