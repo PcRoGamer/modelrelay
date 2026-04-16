@@ -498,6 +498,30 @@ describe('dynamic model score resolution', () => {
     assert.equal(getScore('rnj-1:8b'), 0.208)
   })
 
+  it('resolves researched benchmark scores for newly discovered coding models', () => {
+    assert.equal(getScore('arcee-ai/trinity-large-thinking:free'), 0.632)
+    assert.equal(getScore('bytedance-seed/dola-seed-2.0-pro:free'), 0.765)
+    assert.equal(getScore('glm-5.1'), 0.584)
+    assert.equal(getScore('google/gemma-4-26b-a4b-it:free'), 0.771)
+    assert.equal(getScore('google/gemma-4-31b-it:free'), 0.8)
+  })
+
+  it('maps Gemma 4 Ollama aliases onto researched score entries', () => {
+    assert.equal(resolveAliasedModelId('gemma4:26b'), 'google/gemma-4-26b-a4b-it')
+    assert.equal(resolveAliasedModelId('gemma4:31b'), 'google/gemma-4-31b-it')
+    assert.equal(getScore('gemma4:31b'), 0.8)
+
+    const model = toOllamaModelMeta({
+      name: 'gemma4:31b',
+      model: 'gemma4:31b',
+    })
+
+    assert.ok(model)
+    assert.equal(model.label, 'Gemma 4 31B')
+    assert.equal(model.intell, 0.8)
+    assert.equal(model.isEstimatedScore, false)
+  })
+
   it('maps Ollama cloud remote models to canonical score entries', () => {
     const model = toOllamaModelMeta({
       name: 'Minimax-m2.7:cloud',
@@ -528,6 +552,24 @@ describe('dynamic model score resolution', () => {
     assert.equal(model.isEstimatedScore, false)
   })
 
+  it('uses researched score entries for newly discovered OpenRouter coding models', () => {
+    const gemma = toOpenRouterModelMeta({
+      id: 'google/gemma-4-31b-it:free',
+      name: 'Google: Gemma 4 31B (free)',
+      context_length: 262144,
+    })
+
+    assert.ok(gemma)
+    assert.equal(gemma.label, 'Gemma 4 31B')
+    assert.equal(gemma.intell, 0.8)
+    assert.equal(gemma.isEstimatedScore, false)
+  })
+
+  it('ignores safety-only dynamic models that should not be routed as coding models', () => {
+    assert.equal(toKiloCodeModelMeta({ id: 'meta-llama/llama-guard-4-12b:free' }), null)
+    assert.equal(toOpenRouterModelMeta({ id: 'meta-llama/llama-guard-4-12b:free' }), null)
+  })
+
   it('uses scores.js entry for KiloCode models when payload omits scores', () => {
     const model = toKiloCodeModelMeta({
       id: 'google/gemma-3n-e2b-it:free',
@@ -537,6 +579,18 @@ describe('dynamic model score resolution', () => {
 
     assert.ok(model)
     assert.equal(model.intell, 0.25)
+    assert.equal(model.isEstimatedScore, false)
+  })
+
+  it('uses researched score entries for newly discovered KiloCode coding models', () => {
+    const model = toKiloCodeModelMeta({
+      id: 'arcee-ai/trinity-large-thinking:free',
+      display_name: 'Arcee Trinity Large Thinking',
+    })
+
+    assert.ok(model)
+    assert.equal(model.label, 'Trinity Large Thinking')
+    assert.equal(model.intell, 0.632)
     assert.equal(model.isEstimatedScore, false)
   })
 

@@ -6,9 +6,11 @@
 
 export const scores = {
   "arcee-ai/trinity-large-preview": 0.778,
+  "arcee-ai/trinity-large-thinking": 0.632,
   "arcee-ai/trinity-mini": 0.35,
   "big-pickle": 0.68,
   "bytedance/seed-oss-36b-instruct": 0.38,
+  "bytedance-seed/dola-seed-2.0-pro": 0.765,
   "cogito-2.1:671b": 0.42,
   "coder-model": 0.696,
   "codestral-latest": 0.58,
@@ -24,6 +26,7 @@ export const scores = {
   "deepseek-r1-distill-llama-70b": 0.439,
   "deepseek/deepseek-r1-0528": 0.439,
   "gemini-3-flash-preview": 0.78,
+  "glm-5.1": 0.584,
   "devstral-small-2-24b": 0.658,
   "devstral-2-123b-instruct-2512": 0.722,
   "gemma-3-12b-it": 0.18,
@@ -32,6 +35,8 @@ export const scores = {
   "giga-potato-thinking": 0.592,
   "glm-4.6": 0.7,
   "google/gemma-2-9b-it": 0.18,
+  "google/gemma-4-26b-a4b-it": 0.771,
+  "google/gemma-4-31b-it": 0.8,
   "google/gemma-3n-e2b-it": 0.25,
   "google/gemma-3n-e4b-it": 0.38,
   "grok-code-fast-1": 0.708,
