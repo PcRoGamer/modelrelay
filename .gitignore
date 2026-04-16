@@ -47,3 +47,9 @@ Thumbs.db
 # package-lock.json
 # pnpm-lock.yaml
 # yarn.lock
+# Test files
+test-*.sh
+test-*.mjs
+final-test.sh
+run-test.sh
+start-test.sh
