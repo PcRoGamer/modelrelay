@@ -1672,6 +1672,44 @@
       <div id="providers-container" class="autoupdate-panel">
         <!-- Settings generated here -->
       </div>
+      <h3 style="margin: 2rem 0 0.25rem; font-size: 1rem;">Multi-Key Rotation</h3>
+      <p style="color: var(--text-muted); margin: 0 0 1.25rem; font-size: 0.84rem;">Configure multiple API keys per provider with automatic rotation and failover.</p>
+      <div id="multikey-container" class="autoupdate-panel">
+        <div id="multikey-settings"></div>
+        <button class="btn" style="margin-top:12px;" onclick="showMultiKeyModal()">+ Add Multi-Key Provider</button>
+      </div>
+      <div id="multikey-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:#fff; padding:24px; border-radius:16px; max-width:600px; width:90%; max-height:80vh; overflow:auto;">
+          <h3 style="margin-top:0;">Configure Multi-Key</h3>
+          <div class="form-group">
+            <label>Provider</label>
+            <select id="multikey-provider" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px;">
+              <option value="">Select provider...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Rotation Strategy</label>
+            <select id="multikey-rotation" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px;">
+              <option value="round-robin">Round Robin</option>
+              <option value="weighted">Weighted</option>
+              <option value="priority">Priority</option>
+              <option value="random">Random</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="multikey-fallback" checked> Enable Fallback
+            </label>
+          </div>
+          <h4 style="margin:1rem 0 0.5rem;">Keys</h4>
+          <div id="multikey-keys-list"></div>
+          <button class="btn" style="margin-top:8px;" onclick="addMultiKeyRow()">+ Add Key</button>
+          <div style="margin-top:16px; display:flex; gap:8px;">
+            <button class="btn" onclick="saveMultiKey()">Save</button>
+            <button class="btn" style="background:#f3f4f6;" onclick="closeMultiKeyModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
       <h3 style="margin: 2rem 0 0.25rem; font-size: 1rem;">Configuration Transfer</h3>
       <p style="color: var(--text-muted); margin: 0 0 1.25rem; font-size: 0.84rem;">Export/import all settings (including API keys) as a single encoded token for copy/paste migration.</p>
       <div id="config-transfer-container">
@@ -3268,6 +3306,7 @@
         renderPinningSettings(pinning);
         renderFilterRules(filterRules, providers);
         renderProviderFilterGroup(providers);
+        loadMultiKeySettings(); // Load multi-key settings
         const container = document.getElementById('providers-container');
         container.innerHTML = '';
 
@@ -4374,6 +4413,164 @@
       } catch (e) {
         console.error('Failed to toggle ban status', e);
       }
+    }
+
+    // Multi-Key Rotation UI Functions
+    let multiKeyData = {};
+
+    async function loadMultiKeySettings() {
+      try {
+        const res = await fetch('/api/config/multikey');
+        multiKeyData = await res.json();
+        renderMultiKeySettings();
+      } catch (err) { console.error('Failed to load multi-key settings:', err); }
+    }
+
+    function renderMultiKeySettings() {
+      const container = document.getElementById('multikey-settings');
+      if (!container) return;
+      
+      const providers = Object.keys(multiKeyData);
+      if (providers.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); padding: 16px;">No multi-key providers configured. Click "Add Multi-Key Provider" to set up.</div>';
+        return;
+      }
+      
+      container.innerHTML = providers.map(key => {
+        const cfg = multiKeyData[key];
+        const keyCount = cfg.keys?.length || 0;
+        return `
+          <div class="provider-section" style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>${escapeHtml(key)}</strong>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">(${keyCount} keys, ${cfg.rotation})</span>
+              </div>
+              <div>
+                <button class="btn" style="font-size: 0.75rem;" onclick="editMultiKey('${key}')">Edit</button>
+                <button class="btn" style="font-size: 0.75rem; background: #fef2f2; color: #991b1b;" onclick="deleteMultiKey('${key}')">Delete</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function showMultiKeyModal(providerKey = null) {
+      const modal = document.getElementById('multikey-modal');
+      if (!modal) return;
+      
+      // Populate provider select
+      const select = document.getElementById('multikey-provider');
+      select.innerHTML = '<option value="">Select provider...</option>' +
+        Object.keys(sources || {}).map(k => `<option value="${escapeHtml(k)}">${escapeHtml(sources[k].name || k)}</option>`).join('');
+      
+      if (providerKey && multiKeyData[providerKey]) {
+        select.value = providerKey;
+        document.getElementById('multikey-rotation').value = multiKeyData[providerKey].rotation || 'round-robin';
+        document.getElementById('multikey-fallback').checked = multiKeyData[providerKey].fallback !== false;
+        
+        const keysList = document.getElementById('multikey-keys-list');
+        keysList.innerHTML = multiKeyData[providerKey].keys.map((k, i) => `
+          <div class="multikey-key-row" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+            <input type="password" class="multikey-key-input" placeholder="API Key" value="${escapeHtml(k.key || '')}" style="flex: 2; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+            <input type="number" class="multikey-weight" placeholder="Weight" value="${k.weight || 1}" min="1" style="width: 70px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+            <input type="number" class="multikey-priority" placeholder="Priority" value="${k.priority || 1}" min="1" style="width: 70px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+            <button onclick="this.parentElement.remove()" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 6px 10px; border-radius: 6px; cursor: pointer;">×</button>
+          </div>
+        `).join('');
+      } else {
+        select.value = '';
+        document.getElementById('multikey-rotation').value = 'round-robin';
+        document.getElementById('multikey-fallback').checked = true;
+        document.getElementById('multikey-keys-list').innerHTML = '';
+        addMultiKeyRow();
+      }
+      
+      modal.style.display = 'flex';
+    }
+
+    function closeMultiKeyModal() {
+      const modal = document.getElementById('multikey-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function addMultiKeyRow() {
+      const container = document.getElementById('multikey-keys-list');
+      const row = document.createElement('div');
+      row.className = 'multikey-key-row';
+      row.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px; align-items: center;';
+      row.innerHTML = `
+        <input type="password" class="multikey-key-input" placeholder="API Key" style="flex: 2; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+        <input type="number" class="multikey-weight" placeholder="Weight" value="1" min="1" style="width: 70px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+        <input type="number" class="multikey-priority" placeholder="Priority" value="1" min="1" style="width: 70px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;">
+        <button onclick="this.parentElement.remove()" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 6px 10px; border-radius: 6px; cursor: pointer;">×</button>
+      `;
+      container.appendChild(row);
+    }
+
+    async function saveMultiKey() {
+      const providerKey = document.getElementById('multikey-provider').value;
+      if (!providerKey) {
+        alert('Please select a provider');
+        return;
+      }
+      
+      const keys = [];
+      document.querySelectorAll('.multikey-key-row').forEach(row => {
+        const keyInput = row.querySelector('.multikey-key-input');
+        const weightInput = row.querySelector('.multikey-weight');
+        const priorityInput = row.querySelector('.multikey-priority');
+        
+        if (keyInput && keyInput.value.trim()) {
+          keys.push({
+            key: keyInput.value.trim(),
+            weight: parseInt(weightInput?.value) || 1,
+            priority: parseInt(priorityInput?.value) || 1,
+          });
+        }
+      });
+      
+      if (keys.length === 0) {
+        alert('Please add at least one key');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/config/multikey', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerKey,
+            keys,
+            rotation: document.getElementById('multikey-rotation').value,
+            fallback: document.getElementById('multikey-fallback').checked,
+          })
+        });
+        
+        if (!res.ok) throw new Error('Failed to save');
+        
+        closeMultiKeyModal();
+        await loadMultiKeySettings();
+        await loadSettings(); // Refresh main settings too
+      } catch (err) {
+        alert('Error saving: ' + err.message);
+      }
+    }
+
+    async function deleteMultiKey(providerKey) {
+      if (!confirm(`Delete multi-key config for ${providerKey}?`)) return;
+      
+      try {
+        await fetch(`/api/config/multikey/${providerKey}`, { method: 'DELETE' });
+        await loadMultiKeySettings();
+      } catch (err) {
+        console.error('Failed to delete multi-key:', err);
+      }
+    }
+
+    function editMultiKey(providerKey) {
+      showMultiKeyModal(providerKey);
     }
 
     initializeChat();
